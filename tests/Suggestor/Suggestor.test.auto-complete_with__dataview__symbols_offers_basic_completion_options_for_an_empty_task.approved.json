@@ -1,0 +1,27 @@
+[
+  {
+    "displayText": "due:: due date",
+    "appendText": "due:: "
+  },
+  {
+    "displayText": "start:: start date",
+    "appendText": "start:: "
+  },
+  {
+    "displayText": "scheduled:: scheduled date",
+    "appendText": "scheduled:: "
+  },
+  {
+    "displayText": "id:: id",
+    "appendText": "id::"
+  },
+  {
+    "displayText": "dependsOn:: depends on id",
+    "appendText": "dependsOn::"
+  },
+  {
+    "displayText": "priority:: high priority",
+    "appendText": "priority:: high] ",
+    "insertSkip": 0
+  }
+]

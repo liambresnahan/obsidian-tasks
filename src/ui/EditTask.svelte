@@ -1,332 +1,384 @@
 <script lang="ts">
-    import chrono from 'chrono-node';
     import { onMount } from 'svelte';
-    import { Recurrence } from '../Recurrence';
-    import { getSettings } from '../Settings';
-    import { Priority, Status, Task } from '../Task';
+    import { TASK_FORMATS, getSettings } from '../Config/Settings';
+    import type { Status } from '../Statuses/Status';
+    import type { Task } from '../Task/Task';
+    import DateEditor from './DateEditor.svelte';
+    import Dependency from './Dependency.svelte';
+    import { EditableTask } from './EditableTask';
+    import { labelContentWithAccessKey } from './EditTaskHelpers';
+    import RecurrenceEditor from './RecurrenceEditor.svelte';
+    import StatusEditor from './StatusEditor.svelte';
 
+    // These exported variables are passed in as props by TaskModal.onOpen():
     export let task: Task;
     export let onSubmit: (updatedTasks: Task[]) => void | Promise<void>;
+    export let statusOptions: Status[];
+    export let allTasks: Task[];
 
-    let descriptionInput: HTMLInputElement;
-    let editableTask: {
-        description: string;
-        status: Status;
-        priority: 'none' | 'low' | 'medium' | 'high';
-        recurrenceRule: string;
-        startDate: string;
-        scheduledDate: string;
-        dueDate: string;
-        doneDate: string;
-    } = {
-        description: '',
-        status: Status.Todo,
-        priority: 'none',
-        recurrenceRule: '',
-        startDate: '',
-        scheduledDate: '',
-        dueDate: '',
-        doneDate: '',
-    };
+    const {
+        // NEW_TASK_FIELD_EDIT_REQUIRED
+        prioritySymbols,
+        startDateSymbol,
+        scheduledDateSymbol,
+        dueDateSymbol,
+        cancelledDateSymbol,
+        createdDateSymbol,
+        doneDateSymbol,
+    } = TASK_FORMATS.tasksPluginEmoji.taskSerializer.symbols;
 
-    let parsedStartDate: string = '';
-    let parsedScheduledDate: string = '';
-    let parsedDueDate: string = '';
-    let parsedRecurrence: string = '';
-    let parsedDone: string = '';
+    let descriptionInput: HTMLTextAreaElement;
 
-    $: {
-        if (!editableTask.startDate) {
-            parsedStartDate = '<i>no start date</>';
-        } else {
-            const parsed = chrono.parseDate(
-                editableTask.startDate,
-                new Date(),
-                {
-                    forwardDate: true,
-                },
-            );
-            if (parsed !== null) {
-                parsedStartDate = window.moment(parsed).format('YYYY-MM-DD');
-            } else {
-                parsedStartDate = '<i>invalid start date</i>';
-            }
-        }
-    }
+    let editableTask = EditableTask.fromTask(task, allTasks);
 
-    $: {
-        if (!editableTask.scheduledDate) {
-            parsedScheduledDate = '<i>no scheduled date</>';
-        } else {
-            const parsed = chrono.parseDate(
-                editableTask.scheduledDate,
-                new Date(),
-                {
-                    forwardDate: true,
-                },
-            );
-            if (parsed !== null) {
-                parsedScheduledDate = window
-                    .moment(parsed)
-                    .format('YYYY-MM-DD');
-            } else {
-                parsedScheduledDate = '<i>invalid scheduled date</i>';
-            }
-        }
-    }
+    let isDescriptionValid: boolean = true;
 
-    $: {
-        if (!editableTask.dueDate) {
-            parsedDueDate = '<i>no due date</>';
-        } else {
-            const parsed = chrono.parseDate(editableTask.dueDate, new Date(), {
-                forwardDate: true,
-            });
-            if (parsed !== null) {
-                parsedDueDate = window.moment(parsed).format('YYYY-MM-DD');
-            } else {
-                parsedDueDate = '<i>invalid due date</i>';
-            }
-        }
-    }
+    let isCancelledDateValid: boolean = true;
+    let isCreatedDateValid: boolean = true;
+    let isDoneDateValid: boolean = true;
+    let isDueDateValid: boolean = true;
+    let isScheduledDateValid: boolean = true;
+    let isStartDateValid: boolean = true;
 
-    $: {
-        if (!editableTask.recurrenceRule) {
-            parsedRecurrence = '<i>not recurring</>';
-        } else {
-            parsedRecurrence =
-                Recurrence.fromText({
-                    recurrenceRuleText: editableTask.recurrenceRule,
-                    // Only for representation in the modal, no dates required.
-                    startDate: null,
-                    scheduledDate: null,
-                    dueDate: null,
-                })?.toText() ?? '<i>invalid recurrence rule</i>';
-        }
-    }
+    let isRecurrenceValid: boolean = true;
 
-    $: {
-        if (!editableTask.doneDate) {
-            parsedDone = '<i>no done date</i>';
-        } else {
-            const parsed = chrono.parseDate(editableTask.doneDate);
-            if (parsed !== null) {
-                parsedDone = window.moment(parsed).format('YYYY-MM-DD');
-            } else {
-                parsedDone = '<i>invalid done date</i>';
-            }
-        }
-    }
+    let withAccessKeys: boolean = true;
+    let formIsValid: boolean = true;
+
+    let mountComplete = false;
+
+    const priorityOptions: {
+        value: typeof editableTask.priority;
+        label: string;
+        symbol: string;
+        accessKey: string;
+        accessKeyIndex: number;
+    }[] = [
+        {
+            value: 'lowest',
+            label: 'Lowest',
+            symbol: prioritySymbols.Lowest,
+            accessKey: 'o',
+            accessKeyIndex: 1,
+        },
+        {
+            value: 'low',
+            label: 'Low',
+            symbol: prioritySymbols.Low,
+            accessKey: 'l',
+            accessKeyIndex: 0,
+        },
+        {
+            value: 'none',
+            label: 'Normal',
+            symbol: prioritySymbols.None,
+            accessKey: 'n',
+            accessKeyIndex: 0,
+        },
+        {
+            value: 'medium',
+            label: 'Medium',
+            symbol: prioritySymbols.Medium,
+            accessKey: 'm',
+            accessKeyIndex: 0,
+        },
+        {
+            value: 'high',
+            label: 'High',
+            symbol: prioritySymbols.High,
+            accessKey: 'h',
+            accessKeyIndex: 0,
+        },
+        {
+            value: 'highest',
+            label: 'Highest',
+            symbol: prioritySymbols.Highest,
+            accessKey: 'i',
+            accessKeyIndex: 1,
+        },
+    ];
+
+    $: accesskey = (key: string) => (withAccessKeys ? key : null);
+    $: formIsValid =
+        isDueDateValid &&
+        isRecurrenceValid &&
+        isScheduledDateValid &&
+        isStartDateValid &&
+        isDescriptionValid &&
+        isCancelledDateValid &&
+        isCreatedDateValid &&
+        isDoneDateValid;
+    $: isDescriptionValid = editableTask.description.trim() !== '';
 
     onMount(() => {
-        const { globalFilter } = getSettings();
-        const description = task.description
-            .replace(globalFilter, '')
-            .replace('  ', ' ')
-            .trim();
+        const { provideAccessKeys } = getSettings();
+        withAccessKeys = provideAccessKeys;
 
-        let priority: 'none' | 'low' | 'medium' | 'high' = 'none';
-        if (task.priority === Priority.Low) {
-            priority = 'low';
-        } else if (task.priority === Priority.Medium) {
-            priority = 'medium';
-        } else if (task.priority === Priority.High) {
-            priority = 'high';
-        }
+        mountComplete = true;
 
-        editableTask = {
-            description,
-            status: task.status,
-            priority,
-            recurrenceRule: task.recurrence ? task.recurrence.toText() : '',
-            startDate: task.startDate
-                ? task.startDate.format('YYYY-MM-DD')
-                : '',
-            scheduledDate: task.scheduledDate
-                ? task.scheduledDate.format('YYYY-MM-DD')
-                : '',
-            dueDate: task.dueDate ? task.dueDate.format('YYYY-MM-DD') : '',
-            doneDate: task.doneDate ? task.doneDate.format('YYYY-MM-DD') : '',
-        };
         setTimeout(() => {
             descriptionInput.focus();
         }, 10);
     });
 
-    const _onSubmit = () => {
-        const { globalFilter } = getSettings();
-        let description = editableTask.description.trim();
-        if (!description.includes(globalFilter)) {
-            description = globalFilter + ' ' + description;
+    const _onClose = () => {
+        onSubmit([]);
+    };
+
+    const _onDescriptionKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            if (formIsValid) _onSubmit();
         }
+    };
 
-        let startDate: moment.Moment | null = null;
-        const parsedStartDate = chrono.parseDate(
-            editableTask.startDate,
-            new Date(),
-            { forwardDate: true },
-        );
-        if (parsedStartDate !== null) {
-            startDate = window.moment(parsedStartDate);
-        }
+    // this is called, when text is pasted or dropped into
+    // the description field, to remove any linebreaks
+    const _removeLinebreaksFromDescription = () => {
+        // wrapped into a timer to run after the paste/drop event
+        setTimeout(() => {
+            editableTask.description = editableTask.description.replace(/[\r\n]+/g, ' ');
+        }, 0);
+    };
 
-        let scheduledDate: moment.Moment | null = null;
-        const parsedScheduledDate = chrono.parseDate(
-            editableTask.scheduledDate,
-            new Date(),
-            { forwardDate: true },
-        );
-        if (parsedScheduledDate !== null) {
-            scheduledDate = window.moment(parsedScheduledDate);
-        }
-
-        let dueDate: moment.Moment | null = null;
-        const parsedDueDate = chrono.parseDate(
-            editableTask.dueDate,
-            new Date(),
-            { forwardDate: true },
-        );
-        if (parsedDueDate !== null) {
-            dueDate = window.moment(parsedDueDate);
-        }
-
-        let recurrence: Recurrence | null = null;
-        if (editableTask.recurrenceRule) {
-            recurrence = Recurrence.fromText({
-                recurrenceRuleText: editableTask.recurrenceRule,
-                startDate,
-                scheduledDate,
-                dueDate,
-            });
-        }
-
-        let parsedPriority: Priority;
-        switch (editableTask.priority) {
-            case 'low':
-                parsedPriority = Priority.Low;
-                break;
-            case 'medium':
-                parsedPriority = Priority.Medium;
-                break;
-            case 'high':
-                parsedPriority = Priority.High;
-                break;
-            default:
-                parsedPriority = Priority.None;
-        }
-
-        const updatedTask = new Task({
-            ...task,
-            description,
-            status: editableTask.status,
-            priority: parsedPriority,
-            recurrence,
-            startDate,
-            scheduledDate,
-            dueDate,
-            doneDate: window
-                .moment(editableTask.doneDate, 'YYYY-MM-DD')
-                .isValid()
-                ? window.moment(editableTask.doneDate, 'YYYY-MM-DD')
-                : null,
-        });
-
-        onSubmit([updatedTask]);
+    const _onSubmit = async () => {
+        const newTasks = await editableTask.applyEdits(task, allTasks);
+        onSubmit(newTasks);
     };
 </script>
 
-<div class="tasks-modal">
-    <form on:submit|preventDefault={_onSubmit}>
-        <div class="tasks-modal-section">
-            <label for="description">Description</label>
+<!--
+Availability of access keys:
+- A: Start
+- B: Before this
+- C: Created
+- D: Due
+- E: After this
+- F: Only future dates
+- G:
+- H: High
+- I: Highest
+- J:
+- K:
+- L: Low
+- M: Medium
+- N: Normal
+- O: Lowest
+- P:
+- Q:
+- R: Recurs
+- S: Scheduled
+- T: Description
+- U: Status
+- V:
+- W:
+- X: Done
+- Y:
+- Z:
+- -: Cancelled
+-->
+
+<form class="tasks-modal" on:submit|preventDefault={_onSubmit}>
+    <!-- NEW_TASK_FIELD_EDIT_REQUIRED -->
+
+    <!-- --------------------------------------------------------------------------- -->
+    <!--  Description  -->
+    <!-- --------------------------------------------------------------------------- -->
+    <section class="tasks-modal-description-section">
+        <label for="description">{@html labelContentWithAccessKey('Description', accesskey('t'))}</label>
+        <!-- svelte-ignore a11y-accesskey -->
+        <textarea
+            bind:value={editableTask.description}
+            bind:this={descriptionInput}
+            id="description"
+            class="tasks-modal-description"
+            placeholder="Take out the trash"
+            accesskey={accesskey('t')}
+            on:keydown={_onDescriptionKeyDown}
+            on:paste={_removeLinebreaksFromDescription}
+            on:drop={_removeLinebreaksFromDescription}
+        />
+    </section>
+
+    <!-- --------------------------------------------------------------------------- -->
+    <!--  Priority  -->
+    <!-- --------------------------------------------------------------------------- -->
+    <section class="tasks-modal-priority-section">
+        <label for="priority-{editableTask.priority}">Priority</label>
+        {#each priorityOptions as { value, label, symbol, accessKey, accessKeyIndex }}
+            <div class="task-modal-priority-option-container">
+                <!-- svelte-ignore a11y-accesskey -->
+                <input
+                    type="radio"
+                    id="priority-{value}"
+                    {value}
+                    bind:group={editableTask.priority}
+                    accesskey={accesskey(accessKey)}
+                />
+                <label for="priority-{value}">
+                    <!-- These is no need to extract this behaviour to something like labelContentWithAccessKey(),
+                    since this whole section will just go in a separate Svelte component and
+                    will not be reused elsewhere like labelContentWithAccessKey(). -->
+                    {#if withAccessKeys}
+                        <span>{label.substring(0, accessKeyIndex)}</span><span class="accesskey"
+                            >{label.substring(accessKeyIndex, accessKeyIndex + 1)}</span
+                        ><span>{label.substring(accessKeyIndex + 1)}</span>
+                    {:else}
+                        <span>{label}</span>
+                    {/if}
+                    {#if symbol && symbol.charCodeAt(0) >= 0x100}
+                        <span>{symbol}</span>
+                    {/if}
+                </label>
+            </div>
+        {/each}
+    </section>
+
+    <!-- --------------------------------------------------------------------------- -->
+    <!--  Dates  -->
+    <!-- --------------------------------------------------------------------------- -->
+    <hr />
+    <section class="tasks-modal-dates-section">
+        <!-- --------------------------------------------------------------------------- -->
+        <!--  Recurrence  -->
+        <!-- --------------------------------------------------------------------------- -->
+        <RecurrenceEditor {editableTask} bind:isRecurrenceValid accesskey={accesskey('r')} />
+        <!-- --------------------------------------------------------------------------- -->
+        <!--  Due Date  -->
+        <!-- --------------------------------------------------------------------------- -->
+        <DateEditor
+            id="due"
+            dateSymbol={dueDateSymbol}
+            bind:date={editableTask.dueDate}
+            bind:isDateValid={isDueDateValid}
+            forwardOnly={editableTask.forwardOnly}
+            accesskey={accesskey('d')}
+        />
+
+        <!-- --------------------------------------------------------------------------- -->
+        <!--  Scheduled Date  -->
+        <!-- --------------------------------------------------------------------------- -->
+        <DateEditor
+            id="scheduled"
+            dateSymbol={scheduledDateSymbol}
+            bind:date={editableTask.scheduledDate}
+            bind:isDateValid={isScheduledDateValid}
+            forwardOnly={editableTask.forwardOnly}
+            accesskey={accesskey('s')}
+        />
+
+        <!-- --------------------------------------------------------------------------- -->
+        <!--  Start Date  -->
+        <!-- --------------------------------------------------------------------------- -->
+        <DateEditor
+            id="start"
+            dateSymbol={startDateSymbol}
+            bind:date={editableTask.startDate}
+            bind:isDateValid={isStartDateValid}
+            forwardOnly={editableTask.forwardOnly}
+            accesskey={accesskey('a')}
+        />
+
+        <!-- --------------------------------------------------------------------------- -->
+        <!--  Only future dates  -->
+        <!-- --------------------------------------------------------------------------- -->
+        <div class="future-dates-only">
+            <label for="forwardOnly">{@html labelContentWithAccessKey('Only future dates:', accesskey('f'))}</label>
+            <!-- svelte-ignore a11y-accesskey -->
             <input
-                bind:value={editableTask.description}
-                bind:this={descriptionInput}
-                id="description"
-                type="text"
-                class="tasks-modal-description"
-                placeholder="Take out the trash"
+                bind:checked={editableTask.forwardOnly}
+                id="forwardOnly"
+                type="checkbox"
+                class="task-list-item-checkbox tasks-modal-checkbox"
+                accesskey={accesskey('f')}
             />
         </div>
-        <hr />
-        <div class="tasks-modal-section">
-            <label for="priority">Priority</label>
-            <select
-                bind:value={editableTask.priority}
-                id="priority"
-                class="dropdown"
-            >
-                <option value="none">None</option>
-                <option value="high">⏫ High</option>
-                <option value="medium">🔼 Medium</option>
-                <option value="low">🔽 Low</option>
-            </select>
-        </div>
-        <hr />
-        <div class="tasks-modal-section">
-            <label for="recurrence">Recurrence</label>
-            <input
-                bind:value={editableTask.recurrenceRule}
-                id="description"
-                type="text"
-                placeholder="Try 'every 2 weeks on Thursday'."
+    </section>
+
+    <!-- --------------------------------------------------------------------------- -->
+    <!--  Dependencies  -->
+    <!-- --------------------------------------------------------------------------- -->
+    <hr />
+    <section class="tasks-modal-dependencies-section">
+        {#if allTasks.length > 0 && mountComplete}
+            <!-- --------------------------------------------------------------------------- -->
+            <!--  Blocked By Tasks  -->
+            <!-- --------------------------------------------------------------------------- -->
+            <Dependency
+                type="blockedBy"
+                labelText="Before this"
+                {task}
+                {editableTask}
+                {allTasks}
+                {_onDescriptionKeyDown}
+                accesskey={accesskey('b')}
+                placeholder="Search for tasks that the task being edited depends on..."
             />
-            <code>🔁 {@html parsedRecurrence}</code>
-        </div>
-        <hr />
-        <div class="tasks-modal-section">
-            <div class="tasks-modal-date">
-                <label for="due">Due</label>
-                <input
-                    bind:value={editableTask.dueDate}
-                    id="due"
-                    type="text"
-                    placeholder="Try 'Monday' or 'tomorrow'."
-                />
-                <code>📅 {@html parsedDueDate}</code>
-            </div>
-            <div class="tasks-modal-date">
-                <label for="scheduled">Scheduled</label>
-                <input
-                    bind:value={editableTask.scheduledDate}
-                    id="scheduled"
-                    type="text"
-                    placeholder="Try 'Monday' or 'tomorrow'."
-                />
-                <code>⏳ {@html parsedScheduledDate}</code>
-            </div>
-            <div class="tasks-modal-date">
-                <label for="start">Start</label>
-                <input
-                    bind:value={editableTask.startDate}
-                    id="start"
-                    type="text"
-                    placeholder="Try 'Monday' or 'tomorrow'."
-                />
-                <code>🛫 {@html parsedStartDate}</code>
-            </div>
-        </div>
-        <hr />
-        <div class="tasks-modal-section">
-            <div>
-                Status:
-                <input
-                    type="checkbox"
-                    class="task-list-item-checkbox tasks-modal-checkbox"
-                    checked={editableTask.status === Status.Done}
-                    disabled
-                />
-                <code>{editableTask.status}</code>
-            </div>
-            <div>
-                Done on:
-                <code>{@html parsedDone}</code>
-            </div>
-        </div>
-        <hr />
-        <div class="tasks-modal-section" />
-        <div class="tasks-modal-section">
-            <button type="submit" class="mod-cta">Apply</button>
-        </div>
-    </form>
-</div>
+
+            <!-- --------------------------------------------------------------------------- -->
+            <!--  Blocking Tasks  -->
+            <!-- --------------------------------------------------------------------------- -->
+            <Dependency
+                type="blocking"
+                labelText="After this"
+                {task}
+                {editableTask}
+                {allTasks}
+                {_onDescriptionKeyDown}
+                accesskey={accesskey('e')}
+                placeholder="Search for tasks that depend on this task being done..."
+            />
+        {:else}
+            <div><i>Blocking and blocked by fields are disabled when vault tasks is empty</i></div>
+        {/if}
+    </section>
+
+    <hr />
+    <section class="tasks-modal-dates-section">
+        <!-- --------------------------------------------------------------------------- -->
+        <!--  Status  -->
+        <!-- --------------------------------------------------------------------------- -->
+        <StatusEditor {task} bind:editableTask {statusOptions} accesskey={accesskey('u')} />
+
+        <!-- --------------------------------------------------------------------------- -->
+        <!--  Created Date  -->
+        <!-- --------------------------------------------------------------------------- -->
+        <DateEditor
+            id="created"
+            dateSymbol={createdDateSymbol}
+            bind:date={editableTask.createdDate}
+            bind:isDateValid={isCreatedDateValid}
+            forwardOnly={editableTask.forwardOnly}
+            accesskey={accesskey('c')}
+        />
+
+        <!-- --------------------------------------------------------------------------- -->
+        <!--  Done Date  -->
+        <!-- --------------------------------------------------------------------------- -->
+        <DateEditor
+            id="done"
+            dateSymbol={doneDateSymbol}
+            bind:date={editableTask.doneDate}
+            bind:isDateValid={isDoneDateValid}
+            forwardOnly={editableTask.forwardOnly}
+            accesskey={accesskey('x')}
+        />
+
+        <!-- --------------------------------------------------------------------------- -->
+        <!--  Cancelled Date  -->
+        <!-- --------------------------------------------------------------------------- -->
+        <DateEditor
+            id="cancelled"
+            dateSymbol={cancelledDateSymbol}
+            bind:date={editableTask.cancelledDate}
+            bind:isDateValid={isCancelledDateValid}
+            forwardOnly={editableTask.forwardOnly}
+            accesskey={accesskey('-')}
+        />
+    </section>
+
+    <section class="tasks-modal-button-section">
+        <button disabled={!formIsValid} type="submit" class="mod-cta">Apply </button>
+        <button type="button" on:click={_onClose}>Cancel</button>
+    </section>
+</form>

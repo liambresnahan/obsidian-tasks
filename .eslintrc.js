@@ -22,7 +22,7 @@ module.exports = {
             modules: true,
         },
     },
-    plugins: ['@typescript-eslint', 'import'],
+    plugins: ['@typescript-eslint', 'import', 'svelte3'],
     rules: {
         'linebreak-style': ['error', 'unix'],
         quotes: ['error', 'single', { avoidEscape: true }],
@@ -31,9 +31,12 @@ module.exports = {
         'prettier/prettier': [
             'error',
             {
-                singleQuote: true,
-                tabWidth: 4,
                 trailingComma: 'all',
+                printWidth: 120,
+                tabWidth: 4,
+                useTabs: false,
+                singleQuote: true,
+                bracketSpacing: true,
             },
         ],
         semi: ['error', 'always'],
@@ -45,4 +48,16 @@ module.exports = {
             },
         ],
     },
+    overrides: [
+        {
+            files: ['*.svelte'],
+            parser: 'svelte-eslint-parser',
+            parserOptions: {
+                parser: '@typescript-eslint/parser',
+            },
+            rules: {
+                'no-inner-declarations': 0,
+            },
+        },
+    ],
 };
